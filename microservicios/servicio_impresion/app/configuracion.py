@@ -1,5 +1,5 @@
 """
-Configuración del servicio de reportes - PATRON SINGLETON
+Configuración del servicio de impresión - PATRON SINGLETON
 """
 
 import os
@@ -14,7 +14,6 @@ class Configuration:
         return cls._instance
     
     def _initialize(self):
-        self.MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://admin:password@mongodb:27017/")
-        self.BASE_DATOS = os.getenv("BASE_DATOS", "pos_core")
+        self.REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 
 configuration = Configuration()

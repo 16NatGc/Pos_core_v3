@@ -1,30 +1,40 @@
-from pydantic import BaseModel
-from typing import Optional
+"""
+Modelos Pydantic - PATRON MVC Model Layer
+"""
+
+from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
 from enum import Enum
 
 class RolUsuario(str, Enum):
+    """PATRON STRATEGY: Roles como estrategias de permisos"""
     ADMINISTRADOR = "administrador"
-    CAJERO = "cajero"
+    VENDEDOR = "vendedor"
+    INVENTARIO = "inventario"
 
 class UsuarioBase(BaseModel):
-    nombre: str
-    usuario: str
-    correo: Optional[str] = None
-    rol: RolUsuario
+    """Modelo base para usuarios"""
+    email: EmailStr
+    nombre: str = Field(..., min_length=1, max_length=100)
+    rol: RolUsuario = Field(default=RolUsuario.VENDEDOR)
 
 class UsuarioCrear(UsuarioBase):
-    contrasena: str
+    """PATRON FACTORY METHOD: Para creación de usuarios"""
+    password: str = Field(..., min_length=6)
 
 class Usuario(UsuarioBase):
+    """Modelo completo de usuario - PATRON DOMAIN MODEL"""
     id: str
-    activo: bool = True
+    fecha_creacion: datetime
+    activo: bool
 
-class UsuarioLogin(BaseModel):
-    usuario: str
-    contrasena: str
+class LoginRequest(BaseModel):
+    """Modelo para solicitud de login"""
+    email: EmailStr
+    password: str
 
-# AGREGAR esta clase Token
-class Token(BaseModel):
+class TokenResponse(BaseModel):
+    """Modelo para respuesta de token"""
     access_token: str
     token_type: str
     usuario: Usuario

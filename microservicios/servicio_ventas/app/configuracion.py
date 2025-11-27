@@ -1,13 +1,23 @@
+"""
+Configuración del servicio de ventas - PATRON SINGLETON
+"""
+
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+class Configuration:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Configuration, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+    
+    def _initialize(self):
+        self.MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://admin:password@mongodb:27017/")
+        self.BASE_DATOS = os.getenv("BASE_DATOS", "pos_core")
+        self.COLECCION_VENTAS = "ventas"
+        self.PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://servicio_productos:8002")
+        self.INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://servicio_inventario:8000")
 
-class Configuracion:
-    MONGODB_URL = "mongodb://mongodb:27017"
-    BASE_DATOS = "pos_core"
-    COLECCION_VENTAS = "ventas"
-    COLECCION_DETALLE_VENTAS = "detalle_ventas"
-    URL_INVENTARIO = "http://servicio_inventario:8000"
-
-configuracion = Configuracion()
+configuration = Configuration()

@@ -1,6 +1,5 @@
 """
-Modelos Pydantic para el servicio de inventario
-PATRON MVC - Capa Model: Define la estructura de datos del dominio
+Modelos Pydantic para productos - PATRON MVC Model Layer
 """
 
 from pydantic import BaseModel, Field
@@ -15,6 +14,7 @@ class CategoriaProducto(str, Enum):
     ALIMENTOS = "alimentos"
     HOGAR = "hogar"
     DEPORTES = "deportes"
+    OFICINA = "oficina"
 
 class ProductoBase(BaseModel):
     """Modelo base para productos - PATRON BASE MODEL"""

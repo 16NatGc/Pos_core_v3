@@ -1,21 +1,26 @@
+"""
+Modelos de reportes - PATRON MVC Model Layer
+"""
+
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
-from enum import Enum
 
-class TipoReporte(str, Enum):
-    VENTAS = "ventas"
-    INVENTARIO = "inventario"
-    RENDIMIENTO = "rendimiento"
+class ReporteVentas(BaseModel):
+    """PATRON COMPOSITE: Reporte compuesto de múltiples métricas"""
+    total_ventas: float
+    cantidad_ventas: int
+    ventas_por_dia: List[Dict[str, Any]]
+    productos_mas_vendidos: List[Dict[str, Any]]
 
-class ParametrosReporte(BaseModel):
-    tipo_reporte: TipoReporte
-    fecha_inicio: Optional[str] = None
-    fecha_fin: Optional[str] = None
-    parametros_adicionales: Dict[str, Any] = {}
+class ReporteInventario(BaseModel):
+    """Reporte de inventario compuesto"""
+    total_productos: int
+    productos_stock_bajo: List[Dict[str, Any]]
+    valor_inventario_total: float
 
-class RespuestaReporte(BaseModel):
-    tipo_reporte: str
-    fecha_generacion: str
-    parametros: Dict[str, Any]
-    datos: Dict[str, Any]
+class ReporteGeneral(BaseModel):
+    """PATRON COMPOSITE: Reporte general que contiene otros reportes"""
+    ventas: ReporteVentas
+    inventario: ReporteInventario
+    fecha_generacion: datetime

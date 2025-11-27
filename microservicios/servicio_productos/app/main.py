@@ -1,9 +1,8 @@
 """
-Servicio de Inventario - POS Core
-ARQUITECTURA MVC + PATRONES GOF
+Servicio de Productos - PATRON MVC + GOF
 """
 
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from pymongo import MongoClient
 from bson import ObjectId
 from datetime import datetime
@@ -11,20 +10,19 @@ from typing import List, Optional
 import logging
 from configuracion import configuration
 from modelos import Producto, ProductoCrear, ProductoActualizar
-from observador import sujeto_stock
+from repositorio import ProductoRepository
 
-# Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# PATRON MVC - Controller: FastAPI app como controlador principal
+# PATRON MVC - Controller principal
 app = FastAPI(
-    title="Servicio de Inventario - POS Core",
-    description="Microservicio para gestión de productos e inventario",
+    title="Servicio de Productos - POS Core",
+    description="Microservicio para gestión de catálogo de productos",
     version="1.0.0"
 )
 
-# PATRON DEPENDENCY INJECTION: Factory para base de datos
+# PATRON DEPENDENCY INJECTION
 def get_database():
     """PATRON FACTORY METHOD: Crea conexión a MongoDB"""
     try:
@@ -38,56 +36,23 @@ def get_database():
         logger.error(f"Error conectando a MongoDB: {e}")
         raise
 
-# PATRON REPOSITORY: Abstracción del acceso a datos
-class ProductoRepository:
-    """Repository Pattern: Abstrae las operaciones de base de datos"""
-    
-    def __init__(self, database):
-        self.collection = database
-    
-    async def crear_producto(self, producto_data: dict) -> str:
-        result = self.collection.insert_one(producto_data)
-        return str(result.inserted_id)
-    
-    async def obtener_producto_por_id(self, producto_id: str) -> Optional[dict]:
-        if not ObjectId.is_valid(producto_id):
-            return None
-        return self.collection.find_one({"_id": ObjectId(producto_id)})
-    
-    async def listar_productos(self, filtro: dict, skip: int = 0, limit: int = 10) -> List[dict]:
-        cursor = self.collection.find(filtro).skip(skip).limit(limit)
-        return list(cursor)
-    
-    async def actualizar_producto(self, producto_id: str, datos_actualizacion: dict) -> bool:
-        if not ObjectId.is_valid(producto_id):
-            return False
-        datos_actualizacion["fecha_actualizacion"] = datetime.now()
-        result = self.collection.update_one(
-            {"_id": ObjectId(producto_id)},
-            {"$set": datos_actualizacion}
-        )
-        return result.modified_count > 0
-    
-    async def eliminar_producto(self, producto_id: str) -> bool:
-        if not ObjectId.is_valid(producto_id):
-            return False
-        result = self.collection.update_one(
-            {"_id": ObjectId(producto_id)},
-            {"$set": {"activo": False, "fecha_actualizacion": datetime.now()}}
-        )
-        return result.modified_count > 0
+def get_producto_repository():
+    """PATRON FACTORY: Crea instancia del repositorio"""
+    database = get_database()
+    return ProductoRepository(database)
 
-# PATTERN SERVICE LAYER: Lógica de negocio
-class InventarioService:
-    """Service Layer: Contiene la lógica de negocio del inventario"""
+# PATTERN SERVICE LAYER
+class ProductoService:
+    """Service Layer: Contiene la lógica de negocio de productos"""
     
     def __init__(self, repository: ProductoRepository):
         self.repository = repository
     
     async def crear_producto(self, producto: ProductoCrear) -> dict:
-        # Validar que el SKU no exista
-        productos_existentes = await self.repository.listar_productos({"sku": producto.sku})
-        if productos_existentes:
+        """PATRON FACTORY: Crea nuevo producto con validaciones"""
+        # Validar SKU único
+        producto_existente = await self.repository.obtener_por_sku(producto.sku)
+        if producto_existente:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Ya existe un producto con este SKU"
@@ -99,17 +64,14 @@ class InventarioService:
         producto_data["fecha_actualizacion"] = datetime.now()
         producto_data["activo"] = True
         
-        # PATRON OBSERVER: Notificar si el stock está bajo
-        if producto_data["stock"] < producto_data["stock_minimo"]:
-            sujeto_stock.notificar_stock_bajo(producto_data)
-        
-        producto_id = await self.repository.crear_producto(producto_data)
-        producto_creado = await self.repository.obtener_producto_por_id(producto_id)
+        producto_id = await self.repository.crear(producto_data)
+        producto_creado = await self.repository.obtener_por_id(producto_id)
         
         return self._adaptar_producto(producto_creado)
     
     async def obtener_producto(self, producto_id: str) -> dict:
-        producto = await self.repository.obtener_producto_por_id(producto_id)
+        """Obtiene producto por ID"""
+        producto = await self.repository.obtener_por_id(producto_id)
         if not producto:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -123,14 +85,17 @@ class InventarioService:
         return self._adaptar_producto(producto)
     
     async def listar_productos(self, categoria: Optional[str] = None, skip: int = 0, limit: int = 10) -> List[dict]:
+        """Lista productos con filtros opcionales"""
         filtro = {"activo": True}
         if categoria:
             filtro["categoria"] = categoria
-        productos = await self.repository.listar_productos(filtro, skip, limit)
+        
+        productos = await self.repository.listar_todos(filtro, skip, limit)
         return [self._adaptar_producto(prod) for prod in productos]
     
     async def actualizar_producto(self, producto_id: str, producto_actualizar: ProductoActualizar) -> dict:
-        producto = await self.repository.obtener_producto_por_id(producto_id)
+        """Actualiza producto existente"""
+        producto = await self.repository.obtener_por_id(producto_id)
         if not producto:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -139,31 +104,25 @@ class InventarioService:
         
         datos_actualizacion = {k: v for k, v in producto_actualizar.dict().items() if v is not None}
         
-        # PATRON OBSERVER: Notificar si el stock queda bajo después de actualizar
-        if "stock" in datos_actualizacion:
-            stock_minimo = datos_actualizacion.get("stock_minimo", producto.get("stock_minimo", 5))
-            if datos_actualizacion["stock"] < stock_minimo:
-                producto_actualizado = {**producto, **datos_actualizacion}
-                sujeto_stock.notificar_stock_bajo(producto_actualizado)
-        
-        actualizado = await self.repository.actualizar_producto(producto_id, datos_actualizacion)
+        actualizado = await self.repository.actualizar(producto_id, datos_actualizacion)
         if not actualizado:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No se pudo actualizar el producto"
             )
         
-        producto_actualizado = await self.repository.obtener_producto_por_id(producto_id)
+        producto_actualizado = await self.repository.obtener_por_id(producto_id)
         return self._adaptar_producto(producto_actualizado)
     
     async def eliminar_producto(self, producto_id: str):
-        producto = await self.repository.obtener_producto_por_id(producto_id)
+        """Elimina producto (borrado lógico)"""
+        producto = await self.repository.obtener_por_id(producto_id)
         if not producto:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Producto no encontrado"
             )
-        eliminado = await self.repository.eliminar_producto(producto_id)
+        eliminado = await self.repository.eliminar(producto_id)
         if not eliminado:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -179,21 +138,18 @@ class InventarioService:
         del producto_adaptado["_id"]
         return producto_adaptado
 
-# PATRON DEPENDENCY INJECTION
-def get_inventario_service() -> InventarioService:
-    """Inyecta dependencias del servicio de inventario"""
-    database = get_database()
-    repository = ProductoRepository(database)
-    return InventarioService(repository)
+def get_producto_service() -> ProductoService:
+    """PATRON DEPENDENCY INJECTION: Proporciona instancia del servicio"""
+    repository = get_producto_repository()
+    return ProductoService(repository)
 
-# ENDPOINTS - PATRON MVC Controller
+# PATRON MVC - Endpoints Controller
 @app.get("/")
 async def raiz():
     return {
-        "servicio": "Inventario POS Core",
+        "servicio": "Productos POS Core",
         "estado": "Funcionando",
-        "version": "1.0.0",
-        "timestamp": datetime.now().isoformat()
+        "version": "1.0.0"
     }
 
 @app.get("/health")
@@ -208,7 +164,7 @@ async def salud():
 
     return {
         "estado": "Saludable",
-        "servicio": "Inventario",
+        "servicio": "Productos",
         "base_datos": base_datos_status,
         "timestamp": datetime.now().isoformat()
     }
@@ -216,11 +172,11 @@ async def salud():
 @app.post("/api/v1/productos", response_model=Producto, status_code=status.HTTP_201_CREATED)
 async def crear_producto(
     producto: ProductoCrear,
-    inventario_service: InventarioService = Depends(get_inventario_service)
+    producto_service: ProductoService = Depends(get_producto_service)
 ):
     """PATRON MVC - Controller: Endpoint para crear producto"""
     try:
-        producto_creado = await inventario_service.crear_producto(producto)
+        producto_creado = await producto_service.crear_producto(producto)
         return Producto(**producto_creado)
     except HTTPException:
         raise
@@ -236,11 +192,11 @@ async def listar_productos(
     categoria: Optional[str] = None,
     skip: int = 0,
     limit: int = 10,
-    inventario_service: InventarioService = Depends(get_inventario_service)
+    producto_service: ProductoService = Depends(get_producto_service)
 ):
     """PATRON MVC - Controller: Endpoint para listar productos"""
     try:
-        productos = await inventario_service.listar_productos(categoria, skip, limit)
+        productos = await producto_service.listar_productos(categoria, skip, limit)
         return [Producto(**prod) for prod in productos]
     except Exception as e:
         logger.error(f"Error listando productos: {e}")
@@ -252,11 +208,11 @@ async def listar_productos(
 @app.get("/api/v1/productos/{producto_id}", response_model=Producto)
 async def obtener_producto(
     producto_id: str,
-    inventario_service: InventarioService = Depends(get_inventario_service)
+    producto_service: ProductoService = Depends(get_producto_service)
 ):
     """PATRON MVC - Controller: Endpoint para obtener producto"""
     try:
-        producto = await inventario_service.obtener_producto(producto_id)
+        producto = await producto_service.obtener_producto(producto_id)
         return Producto(**producto)
     except HTTPException:
         raise
@@ -271,11 +227,11 @@ async def obtener_producto(
 async def actualizar_producto(
     producto_id: str,
     producto_actualizar: ProductoActualizar,
-    inventario_service: InventarioService = Depends(get_inventario_service)
+    producto_service: ProductoService = Depends(get_producto_service)
 ):
     """PATRON MVC - Controller: Endpoint para actualizar producto"""
     try:
-        producto_actualizado = await inventario_service.actualizar_producto(producto_id, producto_actualizar)
+        producto_actualizado = await producto_service.actualizar_producto(producto_id, producto_actualizar)
         return Producto(**producto_actualizado)
     except HTTPException:
         raise
@@ -289,11 +245,11 @@ async def actualizar_producto(
 @app.delete("/api/v1/productos/{producto_id}")
 async def eliminar_producto(
     producto_id: str,
-    inventario_service: InventarioService = Depends(get_inventario_service)
+    producto_service: ProductoService = Depends(get_producto_service)
 ):
     """PATRON MVC - Controller: Endpoint para eliminar producto"""
     try:
-        await inventario_service.eliminar_producto(producto_id)
+        await producto_service.eliminar_producto(producto_id)
         return {"mensaje": "Producto eliminado correctamente"}
     except HTTPException:
         raise

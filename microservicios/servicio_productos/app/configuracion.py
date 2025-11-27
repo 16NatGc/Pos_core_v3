@@ -1,6 +1,5 @@
 """
-Configuración del servicio de inventario
-PATRON SINGLETON: Garantiza una única instancia de configuración
+Configuración del servicio de productos - PATRON SINGLETON
 """
 
 import os
@@ -15,10 +14,8 @@ class Configuration:
         return cls._instance
     
     def _initialize(self):
-        """Inicializa los valores de configuración"""
         self.MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://admin:password@mongodb:27017/")
         self.BASE_DATOS = os.getenv("BASE_DATOS", "pos_core")
         self.COLECCION_PRODUCTOS = "productos"
 
-# Instancia Singleton de configuración
 configuration = Configuration()
