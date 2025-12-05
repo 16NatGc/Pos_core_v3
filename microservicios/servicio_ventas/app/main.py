@@ -12,6 +12,7 @@ from configuracion import configuration
 from modelos import VentaCrear, Venta, VentaResponse, EstadoVenta
 from servicios import ProductoService, InventarioService
 from repositorio import VentaRepository
+from dao.producto_dao import ProductoDAO
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
